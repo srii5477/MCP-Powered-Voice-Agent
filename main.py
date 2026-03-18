@@ -12,6 +12,9 @@ dotenv.load_dotenv()
 
 @function_tool
 async def firecrawl_search(query: str, limit:int = 5):
+  """
+    Search the web for real-time information using Firecrawl.
+  """
   url = "https://api.firecrawl.dev/v1/search"
   payload = {"query": query, "limit": limit}
   headers = {"Authorization": f"Bearer {os.getenv("FIRECRAWL_API_KEY")}",
@@ -31,6 +34,10 @@ async def build_livekit_tools(server: MCPServerStdio):
       continue
     def make_proxy(tool_def = tool):
       async def proxy():
+        """
+            Call a Supabase backend tool to retrieve or modify internal application data.
+            Use this for queries involving stored user data, database records, or backend operations.
+        """
         response = await server.call_tool(tool_def.name, {}) #tool doesn't take inputs
         return response
 

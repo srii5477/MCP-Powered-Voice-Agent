@@ -1,28 +1,22 @@
 import os
-from firecrawl import FirecrawlApp
-from pydantic_ai import RunContext
 from pydantic_ai.mcp import MCPServerStdio
 import asyncio
 import requests
-from livekit.agents import function_tool, WorkerOptions, JobContext
+from livekit.agents import function_tool, JobContext
 import dotenv
+from livekit.agents import Agent, AgentSession
+from livekit.plugins import openai, assemblyai, silero
+from livekit.agents import cli, WorkerOptions
 
 dotenv.load_dotenv()
 
-fcapp = FirecrawlApp(api_key=os.getenv("FIRECRAWL_API_KEY"))
-mcpserv = MCPServerStdio("npx",
-                         args=["-y", "@supabase/mcp-server-supabase@latest",
-                               "--access-token", os.getenv("SUPABASE_TOKEN")])
-
-
-
 @function_tool
-async def firecrawl_search(query, limit=5):
+async def firecrawl_search(query: str, limit:int = 5):
   url = "https://api.firecrawl.dev/v1/search"
   payload = {"query": query, "limit": limit}
   headers = {"Authorization": f"Bearer {os.getenv("FIRECRAWL_API_KEY")}",
              "Content-Type": "application/json"}
-  loop = await asyncio.get_event_loop()
+  loop = asyncio.get_event_loop()
   response = await loop.run_in_executor(
       None, lambda: requests.post(url, json=payload, headers=headers)
   )
@@ -36,16 +30,14 @@ async def build_livekit_tools(server: MCPServerStdio):
     if tool.name == "deploy_edge_function":
       continue
     def make_proxy(tool_def = tool):
-      async def proxy(context: RunContext):
-        response = await server.call_tool(tool_def.name, {}, ctx=context)
+      async def proxy():
+        response = await server.call_tool(tool_def.name, {}) #tool doesn't take inputs
         return response
-      return function_tool(proxy)
+
+      #proxy.__name__ = tool_def.name
+      return function_tool(proxy, name=tool_def.name)
     tools.append(make_proxy())
   return tools
-
-
-from livekit.agents import Agent, AgentSession
-from livekit.plugins import openai, assemblyai, silero
 
 async def entrypoint(ctx: JobContext) -> None:
     """
@@ -53,8 +45,8 @@ async def entrypoint(ctx: JobContext) -> None:
     """
     await ctx.connect()
     server = MCPServerStdio(
-        "npx",
-        args=["-y", "@supabase/mcp-server-supabase@latest", "--access-token", os.getenv("SUPABASE_TOKEN")],
+    r"C:\Users\sride\AppData\Roaming\npm\mcp-server-supabase.cmd",
+    args=["--access-token", os.getenv("SUPABASE_TOKEN")]
     )
     await server.__aenter__()
 
@@ -74,15 +66,13 @@ async def entrypoint(ctx: JobContext) -> None:
 
         session = AgentSession(
             vad=silero.VAD.load(min_silence_duration=0.1),
-            stt=assemblyai.STT(word_boost=["Supabase"]),
-            llm=openai.LLM(model="gpt-4o"),
+            stt=assemblyai.STT(api_key=os.getenv("ASSEMBLYAI_API_KEY")),
+            llm=openai.LLM(model="gpt-4o", api_key=os.getenv("OPENAI_API_KEY")),
             tts=openai.TTS(voice="ash"),
         )
-
         await session.start(agent=agent, room=ctx.room)
         await session.generate_reply(instructions="Hello! How can I assist you today?")
 
-        # Keep the session alive until cancelled
         try:
             while True:
                 await asyncio.sleep(1)
@@ -91,9 +81,6 @@ async def entrypoint(ctx: JobContext) -> None:
 
     finally:
         await server.__aexit__(None, None, None)
-
-
-from livekit.agents import cli, WorkerOptions
 
 if __name__ == "__main__":
     cli.run_app(
